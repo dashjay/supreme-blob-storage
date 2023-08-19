@@ -42,7 +42,6 @@ func main() {
 	objectsDir := filepath.Join(*baseDir, "objects")
 
 	ctx := context.Background()
-
 	index := ibadger.NewBagerDB(indexDir)
 	r, err := hashicorp.NewRaft(ctx, *raftId, *myAddr, index, raftDir, *raftBootstrap)
 	if err != nil {

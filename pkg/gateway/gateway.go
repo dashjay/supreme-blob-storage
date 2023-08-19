@@ -100,7 +100,6 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 			pr, pw := io.Pipe()
 			eg.Go(func() error {
 				requestUrl := "http://" + string(peer) + "/?uuid=" + objectPtr
-				defer log.Printf("do request to %s finished", requestUrl)
 				req, err := http.NewRequestWithContext(ctxGroup, http.MethodPost, requestUrl, pr)
 				if err != nil {
 					http.Error(rw, fmt.Sprintf("new request error: %s", err), http.StatusInternalServerError)
@@ -108,10 +107,8 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 				}
 				req.Header.Set("Content-Type", "application/octet-stream")
 				req.ContentLength = r.ContentLength
-				log.Printf("do request to %s", requestUrl)
 				resp, err := s.httpClient.Do(req)
 				if err != nil {
-					log.Printf("do request to failed: %s error: %s", peer, err)
 					return err
 				}
 				defer resp.Body.Close()
@@ -119,7 +116,7 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return err
 				}
-				log.Printf("call sync content result: %s", string(respContent))
+				log.Printf("call sync content result: %s\n", string(respContent))
 				return nil
 			})
 
@@ -184,8 +181,7 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 	}
 	index, err := s.r.Apply(indexBody, time.Second)
 	if err != nil {
-		rw.Write([]byte(fmt.Sprintf("apply body error: %s", err)))
-		rw.WriteHeader(http.StatusInternalServerError)
+		http.Error(rw, fmt.Sprintf("apply body error: %s", err), http.StatusInternalServerError)
 		return
 	}
 	rw.Write([]byte(strconv.Itoa(int(index))))
