@@ -6,8 +6,8 @@ import (
 	"io"
 	"log"
 
-	"github.com/Jille/raft-grpc-example/pkg/index"
-	"github.com/dgraph-io/badger"
+	"github.com/dashjay/supreme-blob-storage/pkg/index"
+	"github.com/dgraph-io/badger/v4"
 	"github.com/hashicorp/raft"
 	"golang.org/x/sync/errgroup"
 )
@@ -53,6 +53,24 @@ func (f *indexBadger) Snapshot() (raft.FSMSnapshot, error) {
 func (f *indexBadger) Restore(r io.ReadCloser) error {
 	_ = f.db.DropAll()
 	return f.db.Load(r, 32)
+}
+
+func (f *indexBadger) Locate(key string) (*index.IndexRecord, error) {
+	var out *index.IndexRecord
+	err := f.db.View(func(txn *badger.Txn) error {
+		item, err := txn.Get([]byte(key))
+		if err != nil {
+			return err
+		}
+		return item.Value(func(val []byte) error {
+			out, err = index.UnmarshalIndexRecord(val)
+			if err != nil {
+				return err
+			}
+			return nil
+		})
+	})
+	return out, err
 }
 
 type badgerSnapshot struct {

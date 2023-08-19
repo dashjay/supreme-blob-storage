@@ -5,7 +5,11 @@ import (
 	"github.com/vmihailenco/msgpack/v5"
 )
 
-type Interface raft.FSM
+type Interface interface {
+	raft.FSM
+
+	Locate(key string) (*IndexRecord, error)
+}
 
 type IndexRecord struct {
 	Key               string

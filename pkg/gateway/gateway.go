@@ -1,38 +1,36 @@
-package main
+package gateway
 
 import (
-	"crypto/md5"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
-	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 
-	"github.com/dgraph-io/badger/v4"
-	"github.com/hashicorp/raft"
+	"github.com/dashjay/supreme-blob-storage/pkg/index"
+	"github.com/dashjay/supreme-blob-storage/pkg/iraft"
+	"github.com/dashjay/supreme-blob-storage/pkg/storage"
 	uuid "github.com/satori/go.uuid"
 	"golang.org/x/sync/errgroup"
 )
 
-const BigFileThrottle = 4096
-
-type ObjectStore struct {
-	index   *indexBadger
-	raft    *raft.Raft
-	baseDir string
-	client  *http.Client
+type Server struct {
+	idx        index.Interface
+	objstore   storage.Interface
+	httpClient *http.Client
+	r          iraft.Interface
 }
 
-func (o *ObjectStore) SyncContent(rw http.ResponseWriter, r *http.Request) {
-	log.Printf("call SyncContent")
-	defer log.Printf("call SyncContent finished")
+func NewServer(idx index.Interface, objstore storage.Interface, r iraft.Interface) *Server {
+	return &Server{idx: idx, objstore: objstore, httpClient: &http.Client{}, r: r}
+}
+
+const BigFileThrottle = 4096
+
+func (s *Server) SyncContent(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		rw.Write([]byte("wrong method for sync"))
 		rw.WriteHeader(http.StatusInternalServerError)
@@ -45,67 +43,63 @@ func (o *ObjectStore) SyncContent(rw http.ResponseWriter, r *http.Request) {
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	file := filepath.Join(o.baseDir, "objects", uid[:2], uid)
-	err := os.MkdirAll(filepath.Dir(file), 0755)
+	wc, err := s.objstore.GetObjectWriter(r.Context(), uid)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	fd, err := os.Create(file)
+	_, err = io.Copy(wc, io.LimitReader(r.Body, r.ContentLength))
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	m5 := md5.New()
-	_, err = io.Copy(io.MultiWriter(fd, m5), io.LimitReader(r.Body, r.ContentLength))
+	err = wc.Close()
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	log.Printf("write finished with md5: %s", hex.EncodeToString(m5.Sum(nil)))
 }
 
-func (o *ObjectStore) Set(rw http.ResponseWriter, r *http.Request) {
-	cfg := o.raft.GetConfiguration()
-	if err := cfg.Error(); err != nil {
-		rw.Write([]byte("get config error"))
-		rw.WriteHeader(http.StatusBadRequest)
-		return
-	}
+func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 	if r.ContentLength < 0 {
 		rw.Write([]byte("unknown content-length is unacceptable"))
 		rw.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	var kv *KV
+	var kv *index.IndexRecord
 	if r.ContentLength <= BigFileThrottle {
-		content, err := ioutil.ReadAll(io.LimitReader(r.Body, r.ContentLength))
+		content, err := io.ReadAll(io.LimitReader(r.Body, r.ContentLength))
 		if err != nil {
 			rw.Write([]byte(fmt.Sprintf("read body error: %s", err)))
 			rw.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		kv = &KV{
+		kv = &index.IndexRecord{
 			Key:               r.RequestURI,
 			Content:           content,
-			Ptr:               "",
+			ContentPtr:        "",
 			CreationTimestamp: time.Now().Unix(),
 			Size:              r.ContentLength,
 		}
 	} else {
+		peers, err := s.r.Peers()
+		if err != nil {
+			rw.Write([]byte("get peers error"))
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
 		objectPtr := uuid.NewV4().String()
-		srvs := cfg.Configuration().Servers
-		var writeChans = make([]chan []byte, len(srvs))
+		var writeChans = make([]chan []byte, len(peers))
 		for i := 0; i < len(writeChans); i++ {
 			writeChans[i] = make(chan []byte)
 		}
 		eg, ctxGroup := errgroup.WithContext(r.Context())
-		for i := range srvs {
-			srv := srvs[i]
+		for i := range peers {
+			peer := peers[i]
 			wc := writeChans[i]
 			pr, pw := io.Pipe()
 			eg.Go(func() error {
-				requestUrl := "http://" + string(srv.Address) + "/?uuid=" + objectPtr
+				requestUrl := "http://" + string(peer) + "/?uuid=" + objectPtr
 				defer log.Printf("do request to %s finished", requestUrl)
 				req, err := http.NewRequestWithContext(ctxGroup, http.MethodPost, requestUrl, pr)
 				if err != nil {
@@ -115,13 +109,13 @@ func (o *ObjectStore) Set(rw http.ResponseWriter, r *http.Request) {
 				req.Header.Set("Content-Type", "application/octet-stream")
 				req.ContentLength = r.ContentLength
 				log.Printf("do request to %s", requestUrl)
-				resp, err := o.client.Do(req)
+				resp, err := s.httpClient.Do(req)
 				if err != nil {
-					log.Printf("do request to failed: %s error: %s", srv.Address, err)
+					log.Printf("do request to failed: %s error: %s", peer, err)
 					return err
 				}
 				defer resp.Body.Close()
-				respContent, err := ioutil.ReadAll(resp.Body)
+				respContent, err := io.ReadAll(resp.Body)
 				if err != nil {
 					return err
 				}
@@ -170,15 +164,15 @@ func (o *ObjectStore) Set(rw http.ResponseWriter, r *http.Request) {
 		for i := range writeChans {
 			close(writeChans[i])
 		}
-		err := eg.Wait()
+		err = eg.Wait()
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("sync body error: %s", err), http.StatusInternalServerError)
 			return
 		}
-		kv = &KV{
+		kv = &index.IndexRecord{
 			Key:               r.RequestURI,
 			Content:           nil,
-			Ptr:               objectPtr,
+			ContentPtr:        objectPtr,
 			CreationTimestamp: time.Now().Unix(),
 			Size:              r.ContentLength,
 		}
@@ -188,49 +182,32 @@ func (o *ObjectStore) Set(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, fmt.Sprintf("marshal index error: %s", err), http.StatusInternalServerError)
 		return
 	}
-	f := o.raft.Apply(indexBody, time.Second)
-	if err := f.Error(); err != nil {
+	index, err := s.r.Apply(indexBody, time.Second)
+	if err != nil {
 		rw.Write([]byte(fmt.Sprintf("apply body error: %s", err)))
 		rw.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	rw.Write([]byte(strconv.Itoa(int(f.Index()))))
+	rw.Write([]byte(strconv.Itoa(int(index))))
 }
 
-func (o *ObjectStore) Get(rw http.ResponseWriter, r *http.Request) {
+func (o *Server) Get(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Content-Type", "application/octet-stream")
-	err := o.index.db.View(func(txn *badger.Txn) error {
-		content, err := txn.Get([]byte(r.RequestURI))
-		if err != nil {
-			return err
-		}
-		var kv = new(KV)
-		err = content.Value(func(val []byte) error {
-			return json.Unmarshal(val, kv)
-		})
-		if err != nil {
-			return err
-		}
-
-		if kv.Size >= BigFileThrottle {
-			path := filepath.Join(o.baseDir, "objects", kv.Ptr[:2], kv.Ptr)
-			fd, err := os.Open(path)
-			if err != nil {
-				return err
-			}
-			defer fd.Close()
-			_, err = io.Copy(rw, fd)
-			if err != nil {
-				return err
-			}
-			return nil
-		} else {
-			rw.Write(kv.Content)
-		}
-		return nil
-	})
+	ir, err := o.idx.Locate(r.RequestURI)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("read index error: %s", err), http.StatusInternalServerError)
 		return
+	}
+	if ir.Size >= BigFileThrottle {
+		rs, err := o.objstore.GetObjectReader(r.Context(), ir.ContentPtr)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("read index error: %s", err), http.StatusInternalServerError)
+			return
+		}
+		rw.Header().Set("Content-Length", strconv.Itoa(int(ir.Size)))
+		io.Copy(rw, rs)
+
+	} else {
+		rw.Write(ir.Content)
 	}
 }
