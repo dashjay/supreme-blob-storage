@@ -1,7 +1,6 @@
 package main
 
 import (
-	"context"
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
@@ -24,83 +23,11 @@ import (
 
 const BigFileThrottle = 4096
 
-type indexBadger struct {
-	db *badger.DB
-}
-
-func NewBagerDB(path string) *indexBadger {
-	db, err := badger.Open(badger.DefaultOptions(path))
-	if err != nil {
-		log.Fatal(err)
-	}
-	return &indexBadger{db}
-}
-
-var _ raft.FSM = &indexBadger{}
-
-func (f *indexBadger) Apply(l *raft.Log) interface{} {
-	var kv = new(KV)
-	err := json.Unmarshal(l.Data, kv)
-	if err != nil {
-		panic(err)
-	}
-	f.db.Update(func(txn *badger.Txn) error {
-		return txn.Set([]byte(kv.Key), l.Data)
-	})
-	return nil
-}
-
-func (f *indexBadger) Snapshot() (raft.FSMSnapshot, error) {
-	pr, pw := io.Pipe()
-	ctx, cancel := context.WithCancel(context.Background())
-	eg, egCtx := errgroup.WithContext(ctx)
-	eg.Go(func() error {
-		_, err := f.db.Backup(pw, f.db.MaxVersion())
-		return err
-	})
-	// Make sure that any future calls to f.Apply() don't change the snapshot.
-	return &snapshot{r: pr, eg: eg, cancel: cancel, ctx: egCtx}, nil
-}
-
-func (f *indexBadger) Restore(r io.ReadCloser) error {
-	_ = f.db.DropAll()
-	return f.db.Load(r, 32)
-}
-
-type snapshot struct {
-	r      io.ReadCloser
-	eg     *errgroup.Group
-	ctx    context.Context
-	cancel context.CancelFunc
-}
-
-func (s *snapshot) Persist(sink raft.SnapshotSink) error {
-	_, err := io.Copy(sink, s.r)
-	if err != nil {
-		return err
-	}
-	return sink.Close()
-}
-
-func (s *snapshot) Release() {
-	_ = s.r.Close()
-	s.eg.Wait()
-	s.cancel()
-}
-
 type ObjectStore struct {
 	index   *indexBadger
 	raft    *raft.Raft
 	baseDir string
 	client  *http.Client
-}
-
-type KV struct {
-	Key               string
-	Content           []byte
-	Ptr               string
-	CreationTimestamp int64
-	Size              int64
 }
 
 func (o *ObjectStore) SyncContent(rw http.ResponseWriter, r *http.Request) {
