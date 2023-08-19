@@ -6,6 +6,7 @@ import (
 	"io"
 	"testing"
 
+	"github.com/dashjay/supreme-blob-storage/pkg/storage"
 	"github.com/dashjay/supreme-blob-storage/pkg/storage/disk"
 	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/assert"
@@ -59,7 +60,7 @@ func TestDisk(t *testing.T) {
 		assert.Nil(t, sto.WriteObject(context.TODO(), key, body))
 		assert.Nil(t, sto.DeleteObject(context.TODO(), key))
 		content, err := sto.GetObject(context.TODO(), key)
-		assert.Equal(t, err, disk.ErrShortWrite)
+		assert.Equal(t, err, storage.ErrObjectNotFound)
 		assert.Nil(t, content)
 	})
 }

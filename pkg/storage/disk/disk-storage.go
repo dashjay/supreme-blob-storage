@@ -29,7 +29,11 @@ func (d *onDisk) filePath(uuid string) string {
 }
 
 func (d *onDisk) openReadOnly(fp string) (*os.File, error) {
-	return os.Open(fp)
+	f, err := os.Open(fp)
+	if os.IsNotExist(err) {
+		return nil, storage.ErrObjectNotFound
+	}
+	return f, nil
 }
 
 func (d *onDisk) createForWrite(fp string) (*os.File, error) {
