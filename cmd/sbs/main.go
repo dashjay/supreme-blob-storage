@@ -5,6 +5,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +17,7 @@ import (
 	"github.com/dashjay/supreme-blob-storage/pkg/index/ibadger"
 	"github.com/dashjay/supreme-blob-storage/pkg/iraft/hashicorp"
 	"github.com/dashjay/supreme-blob-storage/pkg/storage/disk"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
@@ -28,6 +30,7 @@ var (
 
 	baseDir       = flag.String("raft_data_dir", "data/", "Raft data dir")
 	raftBootstrap = flag.Bool("raft_bootstrap", false, "Whether to bootstrap the Raft cluster")
+	monitorAddr   = flag.String("monitor_addr", ":9191", "monitor")
 )
 
 func main() {
@@ -75,9 +78,19 @@ func main() {
 	go func() {
 		err = srv.ListenAndServe()
 		if err != nil {
-			log.Printf("listen and serve error: %s", err)
+			log.Panicf("listen and serve error: %s", err)
 		}
 	}()
+
+	if *monitorAddr != "" {
+		srv := &http.Server{Addr: *monitorAddr, Handler: promhttp.Handler()}
+		go func() {
+			err = srv.ListenAndServe()
+			if err != nil {
+				log.Printf("listen and serve error: %s", err)
+			}
+		}()
+	}
 
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM, syscall.SIGQUIT)
