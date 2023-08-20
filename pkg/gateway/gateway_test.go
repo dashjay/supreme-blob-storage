@@ -64,7 +64,9 @@ func TestGateway(t *testing.T) {
 			log.Printf("listen and serve error: %s", err)
 		}
 	}()
-	defer srv.Shutdown(context.TODO())
+	defer func() {
+		assert.Nil(t, srv.Shutdown(context.TODO()))
+	}()
 	time.Sleep(2 * time.Second)
 	var httpClient = http.DefaultClient
 	t.Run("test write sbs", func(t *testing.T) {

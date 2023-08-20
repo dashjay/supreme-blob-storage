@@ -32,10 +32,9 @@ func (f *indexBadger) Apply(l *raft.Log) interface{} {
 	if err != nil {
 		panic(err)
 	}
-	f.db.Update(func(txn *badger.Txn) error {
+	return f.db.Update(func(txn *badger.Txn) error {
 		return txn.Set([]byte(kv.Key), l.Data)
 	})
-	return nil
 }
 
 func (f *indexBadger) Snapshot() (raft.FSMSnapshot, error) {
@@ -90,6 +89,6 @@ func (s *badgerSnapshot) Persist(sink raft.SnapshotSink) error {
 
 func (s *badgerSnapshot) Release() {
 	_ = s.r.Close()
-	s.eg.Wait()
+	_ = s.eg.Wait()
 	s.cancel()
 }

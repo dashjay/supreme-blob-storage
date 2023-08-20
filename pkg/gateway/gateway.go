@@ -32,15 +32,13 @@ const BigFileThrottle = 4096
 
 func (s *Server) SyncContent(rw http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
-		rw.Write([]byte("wrong method for sync"))
-		rw.WriteHeader(http.StatusInternalServerError)
+		http.Error(rw, "wrong method for sync", http.StatusInternalServerError)
 		return
 	}
 	query := r.URL.Query()
 	uid := query.Get("uuid")
 	if r.ContentLength <= 0 {
-		rw.Write([]byte("unknown content-length is unacceptable"))
-		rw.WriteHeader(http.StatusBadRequest)
+		http.Error(rw, "unknown content-length is unacceptable", http.StatusBadRequest)
 		return
 	}
 	wc, err := s.objstore.GetObjectWriter(r.Context(), uid)
@@ -62,16 +60,14 @@ func (s *Server) SyncContent(rw http.ResponseWriter, r *http.Request) {
 
 func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 	if r.ContentLength < 0 {
-		rw.Write([]byte("unknown content-length is unacceptable"))
-		rw.WriteHeader(http.StatusBadRequest)
+		http.Error(rw, "unknown content-length is unacceptable", http.StatusBadRequest)
 		return
 	}
 	var kv *index.IndexRecord
 	if r.ContentLength <= BigFileThrottle {
 		content, err := io.ReadAll(io.LimitReader(r.Body, r.ContentLength))
 		if err != nil {
-			rw.Write([]byte(fmt.Sprintf("read body error: %s", err)))
-			rw.WriteHeader(http.StatusInternalServerError)
+			http.Error(rw, fmt.Sprintf("read body error: %s", err), http.StatusInternalServerError)
 			return
 		}
 		kv = &index.IndexRecord{
@@ -84,8 +80,7 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 	} else {
 		peers, err := s.r.Peers()
 		if err != nil {
-			rw.Write([]byte("get peers error"))
-			rw.WriteHeader(http.StatusBadRequest)
+			http.Error(rw, "get peers error", http.StatusBadRequest)
 			return
 		}
 		objectPtr := uuid.NewV4().String()
@@ -184,7 +179,7 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, fmt.Sprintf("apply body error: %s", err), http.StatusInternalServerError)
 		return
 	}
-	rw.Write([]byte(strconv.Itoa(int(index))))
+	_, _ = rw.Write([]byte(strconv.Itoa(int(index))))
 }
 
 func (o *Server) Get(rw http.ResponseWriter, r *http.Request) {
@@ -201,9 +196,12 @@ func (o *Server) Get(rw http.ResponseWriter, r *http.Request) {
 			return
 		}
 		rw.Header().Set("Content-Length", strconv.Itoa(int(ir.Size)))
-		io.Copy(rw, rs)
-
+		_, err = io.Copy(rw, rs)
+		if err != nil {
+			http.Error(rw, fmt.Sprintf("copy body error: %s", err), http.StatusInternalServerError)
+			return
+		}
 	} else {
-		rw.Write(ir.Content)
+		_, _ = rw.Write(ir.Content)
 	}
 }

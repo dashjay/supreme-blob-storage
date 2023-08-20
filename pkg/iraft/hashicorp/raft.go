@@ -14,6 +14,7 @@ import (
 	"github.com/hashicorp/raft"
 	boltdb "github.com/hashicorp/raft-boltdb"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 )
 
 type Raft struct {
@@ -41,8 +42,7 @@ func NewRaft(ctx context.Context, raftID, serverAddr string, fsm raft.FSM, raftD
 	if err != nil {
 		return nil, fmt.Errorf(`raft.NewFileSnapshotStore(%q, ...): %v`, raftDir, err)
 	}
-
-	tm := transport.New(raft.ServerAddress(serverAddr), []grpc.DialOption{grpc.WithInsecure()})
+	tm := transport.New(raft.ServerAddress(serverAddr), []grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())})
 
 	r, err := raft.NewRaft(c, fsm, ldb, sdb, fss, tm.Transport())
 	if err != nil {
