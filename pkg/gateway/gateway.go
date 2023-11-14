@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"time"
@@ -18,13 +17,36 @@ import (
 
 type Server struct {
 	idx        index.Interface
-	objstore   storage.Interface
+	objStore   storage.Interface
 	httpClient *http.Client
 	r          iraft.Interface
 }
 
-func NewServer(idx index.Interface, objstore storage.Interface, r iraft.Interface) *Server {
-	return &Server{idx: idx, objstore: objstore, httpClient: &http.Client{}, r: r}
+type ServerConfig struct {
+	httpClient *http.Client
+}
+
+func WithCustomHTTPClient(c *http.Client) Option {
+	return func(sc *ServerConfig) {
+		sc.httpClient = c
+	}
+}
+
+type Option func(sc *ServerConfig)
+
+func (s *ServerConfig) Build(idx index.Interface, objStore storage.Interface, r iraft.Interface) *Server {
+	if s.httpClient == nil {
+		s.httpClient = &http.Client{}
+	}
+	return &Server{idx: idx, objStore: objStore, httpClient: s.httpClient, r: r}
+}
+
+func NewServer(idx index.Interface, objStore storage.Interface, r iraft.Interface, opts ...Option) *Server {
+	sc := &ServerConfig{}
+	for i := range opts {
+		opts[i](sc)
+	}
+	return sc.Build(idx, objStore, r)
 }
 
 const BigFileThrottle = 4096
@@ -40,7 +62,7 @@ func (s *Server) SyncContent(rw http.ResponseWriter, r *http.Request) {
 		http.Error(rw, "unknown content-length is unacceptable", http.StatusBadRequest)
 		return
 	}
-	wc, err := s.objstore.GetObjectWriter(r.Context(), uid)
+	wc, err := s.objStore.GetObjectWriter(r.Context(), uid)
 	if err != nil {
 		http.Error(rw, err.Error(), http.StatusInternalServerError)
 		return
@@ -105,12 +127,7 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 				if err != nil {
 					return err
 				}
-				defer resp.Body.Close()
-				respContent, err := io.ReadAll(resp.Body)
-				if err != nil {
-					return err
-				}
-				log.Printf("call sync content result: %s\n", string(respContent))
+				resp.Body.Close()
 				return nil
 			})
 
@@ -181,15 +198,15 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 	_, _ = rw.Write([]byte(strconv.Itoa(int(appliedIndex))))
 }
 
-func (o *Server) Get(rw http.ResponseWriter, r *http.Request) {
+func (s *Server) Get(rw http.ResponseWriter, r *http.Request) {
 	rw.Header().Set("Content-Type", "application/octet-stream")
-	ir, err := o.idx.Locate(r.RequestURI)
+	ir, err := s.idx.Locate(r.RequestURI)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("read index error: %s", err), http.StatusInternalServerError)
 		return
 	}
 	if ir.Size >= BigFileThrottle {
-		rs, err := o.objstore.GetObjectReader(r.Context(), ir.ContentPtr)
+		rs, err := s.objStore.GetObjectReader(r.Context(), ir.ContentPtr)
 		if err != nil {
 			http.Error(rw, fmt.Sprintf("read index error: %s", err), http.StatusInternalServerError)
 			return
