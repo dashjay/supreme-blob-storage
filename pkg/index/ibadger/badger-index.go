@@ -2,7 +2,6 @@ package ibadger
 
 import (
 	"context"
-	"encoding/json"
 	"io"
 	"log"
 
@@ -27,8 +26,7 @@ func NewBadgerDB(path string) index.Interface {
 }
 
 func (f *indexBadger) Apply(l *raft.Log) interface{} {
-	var kv = new(index.IndexRecord)
-	err := json.Unmarshal(l.Data, kv)
+	kv, err := index.UnmarshalIndexRecord(l.Data)
 	if err != nil {
 		panic(err)
 	}
