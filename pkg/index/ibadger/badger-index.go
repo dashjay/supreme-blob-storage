@@ -18,7 +18,7 @@ type indexBadger struct {
 
 var _ index.Interface = (*indexBadger)(nil)
 
-func NewBagerDB(path string) *indexBadger {
+func NewBadgerDB(path string) index.Interface {
 	db, err := badger.Open(badger.DefaultOptions(path))
 	if err != nil {
 		log.Fatal(err)

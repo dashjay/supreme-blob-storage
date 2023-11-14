@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -169,17 +168,17 @@ func (s *Server) Set(rw http.ResponseWriter, r *http.Request) {
 			Size:              r.ContentLength,
 		}
 	}
-	indexBody, err := json.Marshal(kv)
+	indexBody, err := kv.Marshal()
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("marshal index error: %s", err), http.StatusInternalServerError)
 		return
 	}
-	index, err := s.r.Apply(indexBody, time.Second)
+	appliedIndex, err := s.r.Apply(indexBody, time.Second)
 	if err != nil {
 		http.Error(rw, fmt.Sprintf("apply body error: %s", err), http.StatusInternalServerError)
 		return
 	}
-	_, _ = rw.Write([]byte(strconv.Itoa(int(index))))
+	_, _ = rw.Write([]byte(strconv.Itoa(int(appliedIndex))))
 }
 
 func (o *Server) Get(rw http.ResponseWriter, r *http.Request) {

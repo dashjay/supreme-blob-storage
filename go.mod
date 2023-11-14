@@ -9,6 +9,7 @@ require (
 	github.com/dgraph-io/badger/v4 v4.2.0
 	github.com/hashicorp/raft v1.5.0
 	github.com/hashicorp/raft-boltdb v0.0.0-20230125174641-2a8082862702
+	github.com/prometheus/client_golang v1.16.0
 	github.com/satori/go.uuid v1.2.0
 	github.com/stretchr/testify v1.8.4
 	github.com/vmihailenco/msgpack/v5 v5.3.5
@@ -44,10 +45,10 @@ require (
 	github.com/matttproud/golang_protobuf_extensions v1.0.4 // indirect
 	github.com/pkg/errors v0.9.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
-	github.com/prometheus/client_golang v1.16.0 // indirect
 	github.com/prometheus/client_model v0.3.0 // indirect
 	github.com/prometheus/common v0.42.0 // indirect
 	github.com/prometheus/procfs v0.10.1 // indirect
+	github.com/rogpeppe/go-internal v1.11.0 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	go.opencensus.io v0.22.5 // indirect
 	golang.org/x/sys v0.11.0 // indirect

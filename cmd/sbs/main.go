@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	myAddr = flag.String("address", "localhost:50051", "TCP host+port for this node")
+	myAddr = flag.String("address", "0.0.0.0:50051", "TCP host+port for this node")
 	raftId = flag.String("raft_id", "", "Node id used by Raft")
 
 	baseDir       = flag.String("raft_data_dir", "data/", "Raft data dir")
@@ -44,7 +44,7 @@ func main() {
 	objectsDir := filepath.Join(*baseDir, "objects")
 
 	ctx := context.Background()
-	index := ibadger.NewBagerDB(indexDir)
+	index := ibadger.NewBadgerDB(indexDir)
 	r, err := hashicorp.NewRaft(ctx, *raftId, *myAddr, index, raftDir, *raftBootstrap)
 	if err != nil {
 		log.Fatalf("failed to start raft: %v", err)

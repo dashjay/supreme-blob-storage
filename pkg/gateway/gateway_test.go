@@ -29,7 +29,7 @@ func TestGateway(t *testing.T) {
 	objectsDir := filepath.Join(tempDir, "objects")
 
 	ctx := context.Background()
-	index := ibadger.NewBagerDB(indexDir)
+	index := ibadger.NewBadgerDB(indexDir)
 	r, err := hashicorp.NewRaft(ctx, "1", "localhost:8080", index, raftDir, true)
 	if err != nil {
 		log.Fatalf("failed to start raft: %v", err)
